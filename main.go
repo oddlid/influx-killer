@@ -51,10 +51,12 @@ func (w *Worker) Work() {
 		default:
 			// carry on
 		}
+		log.Debugf("Worker %q trying to write %d batch points...", w.Hostname, w.NumPoints)
 		err := w.Write()
 		if err != nil {
 			log.Errorf("worker %q error: %v", w.Hostname, err)
 		}
+		log.Debugf("Worker %q sleeping for %v ...", w.Hostname, w.Interval)
 		time.Sleep(w.Interval)
 	}
 }
