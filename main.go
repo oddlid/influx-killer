@@ -1,7 +1,7 @@
 package main
 
 import (
-	//"fmt"
+	"fmt"
 	log "github.com/Sirupsen/logrus"
 	"github.com/influxdata/influxdb/client/v2"
 	"github.com/urfave/cli" // renamed from codegansta
@@ -27,6 +27,7 @@ type Worker struct {
 	NumPoints int
 	Interval  time.Duration
 	Done      chan bool
+	Cancel    chan bool
 }
 
 var regions = [...]string{
@@ -39,8 +40,13 @@ var regions = [...]string{
 func (w *Worker) Work() {
 	for {
 		select {
-		case <-w.Done:
+		case <-w.Cancel:
 			log.Debugf("worker %q got quit signal, exiting", w.Hostname)
+			err := w.Client.Close()
+			if err != nil {
+				log.Errorf("worker %q error: %v", w.Hostname, err)
+			}
+			w.Done <- true
 			return
 		default:
 			// carry on
@@ -85,7 +91,7 @@ func (w *Worker) Write() error {
 	return w.Client.Write(bp)
 }
 
-func NewWorker(hostname, db, addr string, numpoints int, interval float64, done chan bool) *Worker {
+func NewWorker(hostname, db, addr string, numpoints int, interval float64, cancel, done chan bool) *Worker {
 	c, err := client.NewHTTPClient(client.HTTPConfig{
 		Addr: addr,
 	})
@@ -99,6 +105,7 @@ func NewWorker(hostname, db, addr string, numpoints int, interval float64, done 
 		DB:        db,
 		NumPoints: numpoints,
 		Interval:  time.Duration(interval) * time.Second,
+		Cancel:    cancel,
 		Done:      done,
 	}
 }
@@ -128,14 +135,33 @@ func getWorkers(numworkers, numpoints int, addr, hostprefix, db string, interval
 
 func startStress(c *cli.Context) error {
 	done := make(chan bool)
-	//numworkers := c.Int("num-hosts")
-	wo := NewWorker("oddhost", c.String("db"), c.String("url"), c.Int("num-points"), c.Float64("interval"), done)
-	wt := NewWorker("tobbehost", c.String("db"), c.String("url"), c.Int("num-points"), c.Float64("interval"), done)
-	go wo.Work()
-	go wt.Work()
-	time.Sleep(3 * time.Second)
-	done <- true
-	done <- true
+	cancel := make(chan bool)
+	nw := c.Int("num-hosts")
+	hp := c.String("host-prefix")
+	db := c.String("db")
+	np := c.Int("num-points")
+	iv := c.Float64("interval")
+	to := c.Float64("timeout")
+	url := c.String("url")
+
+	for i := 0; i < nw; i++ {
+		w := NewWorker(fmt.Sprintf("%s-%d", hp, i), db, url, np, iv, cancel, done)
+		if w != nil {
+			go w.Work()
+		}
+	}
+
+	time.Sleep(time.Duration(to) * time.Second)
+
+	go func() {
+		for i := 0; i < nw; i++ {
+			cancel <- true
+		}
+	}()
+
+	for i := 0; i < nw; i++ {
+		<-done
+	}
 
 	return nil
 }
@@ -162,7 +188,7 @@ func main() {
 			Usage: "Name of database to write to",
 		},
 		cli.StringFlag{
-			Name:  "hostname-prefix",
+			Name:  "host-prefix",
 			Usage: "Prefix for generated hostnames",
 			Value: DEF_HOSTPREFIX,
 		},
