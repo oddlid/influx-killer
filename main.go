@@ -13,10 +13,10 @@ import (
 const (
 	VERSION        string  = "2016-09-06"
 	DEF_DB         string  = "custom"
-	DEF_HOSTPREFIX string  = "fakehost"
-	DEF_TIMEOUT    float64 = 5.0
-	DEF_INTERVAL   float64 = 0.1
-	DEF_POINTS     int     = 64
+	DEF_HOSTPREFIX string  = "hetsfan"
+	DEF_TIMEOUT    float64 = 66.6
+	DEF_INTERVAL   float64 = 1.3
+	DEF_POINTS     uint    = 256
 	DEF_NUMHOSTS   uint    = 64
 )
 
@@ -114,11 +114,11 @@ func NewWorker(hostname, db, addr string, numpoints int, interval float64, cance
 
 func startStress(c *cli.Context) error {
 	nw := c.Int("num-hosts")
-	hp := c.String("host-prefix")
-	db := c.String("db")
 	np := c.Int("num-points")
 	iv := c.Float64("interval")
 	to := c.Float64("timeout")
+	hp := c.String("host-prefix")
+	db := c.String("db")
 	url := c.String("url")
 	done := make(chan bool)
 	cancel := make(chan bool)
@@ -189,14 +189,14 @@ func main() {
 			Usage: "How long in seconds (fractions allowed) to run the test",
 			Value: DEF_TIMEOUT,
 		},
-		cli.IntFlag{
+		cli.UintFlag{
 			Name:  "num-points, p",
 			Usage: "Number of points per batch",
 			Value: DEF_POINTS,
 		},
 		cli.StringFlag{
 			Name:  "log-level, l",
-			Value: "fatal",
+			Value: "error",
 			Usage: "Log level (options: debug, info, warn, error, fatal, panic)",
 		},
 		cli.BoolFlag{
