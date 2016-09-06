@@ -7,6 +7,7 @@ import (
 	"github.com/urfave/cli" // renamed from codegansta
 	"math/rand"
 	"os"
+	//"os/signal"
 	"time"
 )
 
@@ -157,6 +158,20 @@ func startStress(c *cli.Context) error {
 	done := make(chan bool)
 	cancel := make(chan bool)
 
+	cancel_workers := func() {
+		for i := 0; i < nw; i++ {
+			cancel <- true
+		}
+	}
+
+	await_workers := func() {
+		for i := 0; i < nw; i++ {
+			<-done
+		}
+	}
+
+	// fix signal handling here, or maybe after starting workers...
+
 	for i := 0; i < nw; i++ {
 		w := NewWorker(fmt.Sprintf("%s-%05d", hp, i), db, url, np, iv, wto, cancel, done)
 		if w != nil {
@@ -170,14 +185,10 @@ func startStress(c *cli.Context) error {
 
 	select {
 	case <-time.After(time.Second * time.Duration(to)):
-		for i := 0; i < nw; i++ {
-			cancel <- true
-		}
+		cancel_workers()
 	}
 
-	for i := 0; i < nw; i++ {
-		<-done
-	}
+	await_workers()
 
 	return nil
 }
