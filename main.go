@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	VERSION        string  = "2016-09-05"
+	VERSION        string  = "2016-09-06"
 	DEF_DB         string  = "custom"
 	DEF_HOSTPREFIX string  = "fakehost"
 	DEF_TIMEOUT    float64 = 5.0
@@ -112,32 +112,7 @@ func NewWorker(hostname, db, addr string, numpoints int, interval float64, cance
 	}
 }
 
-/*
-func getWorkers(numworkers, numpoints int, addr, hostprefix, db string, interval float64) []*Worker {
-	ws := make([]*Worker, 0, numworkers)
-
-	for i := 0; i < numworkers; i++ {
-		w := NewWorker(
-			fmt.Sprintf("%s-%02d", hostprefix, i),
-			db,
-			addr,
-			numpoints,
-			interval,
-			done,
-		)
-		if w == nil {
-			continue
-		}
-		ws = append(ws, w)
-	}
-
-	return ws
-}
-*/
-
 func startStress(c *cli.Context) error {
-	done := make(chan bool)
-	cancel := make(chan bool)
 	nw := c.Int("num-hosts")
 	hp := c.String("host-prefix")
 	db := c.String("db")
@@ -145,21 +120,26 @@ func startStress(c *cli.Context) error {
 	iv := c.Float64("interval")
 	to := c.Float64("timeout")
 	url := c.String("url")
+	done := make(chan bool)
+	cancel := make(chan bool)
 
 	for i := 0; i < nw; i++ {
-		w := NewWorker(fmt.Sprintf("%s-%d", hp, i), db, url, np, iv, cancel, done)
+		w := NewWorker(fmt.Sprintf("%s-%05d", hp, i), db, url, np, iv, cancel, done)
 		if w != nil {
-			go w.Work()
+			go func() {
+				// randomize the start of each worker with a delay of 0.0 - 1.0 sec
+				time.Sleep(time.Second * time.Duration(rand.Float64()))
+				w.Work()
+			}()
 		}
 	}
 
-	time.Sleep(time.Duration(to) * time.Second)
-
-	go func() {
+	select {
+	case <-time.After(time.Second * time.Duration(to)):
 		for i := 0; i < nw; i++ {
 			cancel <- true
 		}
-	}()
+	}
 
 	for i := 0; i < nw; i++ {
 		<-done
@@ -220,8 +200,8 @@ func main() {
 			Usage: "Log level (options: debug, info, warn, error, fatal, panic)",
 		},
 		cli.BoolFlag{
-			Name:   "debug, d",
-			Usage:  "Run in debug mode",
+			Name:  "debug, d",
+			Usage: "Run in debug mode",
 		},
 	}
 
