@@ -15,6 +15,7 @@ const (
 	DEF_DB         string  = "custom"
 	DEF_HOSTPREFIX string  = "hetsfan"
 	DEF_TIMEOUT    float64 = 66.6
+	DEF_W_TIMEOUT  float64 = 5.0
 	DEF_INTERVAL   float64 = 1.3
 	DEF_POINTS     uint    = 256
 	DEF_NUMHOSTS   uint    = 64
@@ -41,22 +42,36 @@ func (w *Worker) Work() {
 	for {
 		select {
 		case <-w.Cancel:
-			log.Debugf("worker %q got quit signal, exiting", w.Hostname)
+			log.WithFields(log.Fields{
+				"worker": w.Hostname,
+			}).Debug("Quitting...")
 			err := w.Client.Close()
 			if err != nil {
-				log.Errorf("worker %q error: %v", w.Hostname, err)
+				log.WithFields(log.Fields{
+					"worker": w.Hostname,
+					"error":  err,
+				}).Error("Client close")
 			}
 			w.Done <- true
 			return
 		default:
 			// carry on
 		}
-		log.Debugf("Worker %q trying to write %d batch points...", w.Hostname, w.NumPoints)
+		log.WithFields(log.Fields{
+			"worker":     w.Hostname,
+			"num_points": w.NumPoints,
+		}).Debug("Writing...")
 		err := w.Write()
 		if err != nil {
-			log.Errorf("worker %q error: %v", w.Hostname, err)
+			log.WithFields(log.Fields{
+				"worker": w.Hostname,
+				"error":  err,
+			}).Error("Client write")
 		}
-		log.Debugf("Worker %q sleeping for %v ...", w.Hostname, w.Interval)
+		log.WithFields(log.Fields{
+			"worker":   w.Hostname,
+			"interval": w.Interval,
+		}).Debug("Sleeping...")
 		time.Sleep(w.Interval)
 	}
 }
@@ -68,7 +83,10 @@ func (w *Worker) Write() error {
 		Precision: "ms",
 	})
 	if err != nil {
-		log.Errorf("worker %q error: %v", w.Hostname, err)
+		log.WithFields(log.Fields{
+			"worker": w.Hostname,
+			"error":  err,
+		}).Error("Create batch points")
 		return err
 	}
 	max := 100.0
@@ -85,7 +103,10 @@ func (w *Worker) Write() error {
 		}
 		p, err := client.NewPoint("cpu_usage", tags, fields, time.Now())
 		if err != nil {
-			log.Errorf("worker %q error: %v", w.Hostname, err)
+			log.WithFields(log.Fields{
+				"worker": w.Hostname,
+				"error":  err,
+			}).Error("Create point")
 			return err
 		}
 		bp.AddPoint(p)
@@ -93,12 +114,16 @@ func (w *Worker) Write() error {
 	return w.Client.Write(bp)
 }
 
-func NewWorker(hostname, db, addr string, numpoints int, interval float64, cancel, done chan bool) *Worker {
+func NewWorker(hostname, db, addr string, numpoints int, interval, timeout float64, cancel, done chan bool) *Worker {
 	c, err := client.NewHTTPClient(client.HTTPConfig{
-		Addr: addr,
+		Addr:    addr,
+		Timeout: time.Duration(timeout*1000) * time.Millisecond,
 	})
 	if err != nil {
-		log.Errorf("Error creating new worker %q: %v", hostname, err)
+		log.WithFields(log.Fields{
+			"worker": hostname,
+			"error":  err,
+		}).Error("Create HTTP client")
 		return nil
 	}
 	return &Worker{
@@ -106,7 +131,7 @@ func NewWorker(hostname, db, addr string, numpoints int, interval float64, cance
 		Hostname:  hostname,
 		DB:        db,
 		NumPoints: numpoints,
-		Interval:  time.Duration(interval * 1000) * time.Millisecond,
+		Interval:  time.Duration(interval*1000) * time.Millisecond,
 		Cancel:    cancel,
 		Done:      done,
 	}
@@ -120,15 +145,24 @@ func startStress(c *cli.Context) error {
 	hp := c.String("host-prefix")
 	db := c.String("db")
 	url := c.String("url")
+	wto := c.Float64("write-timeout")
+
+	if url == "" {
+		return cli.NewExitError("You must specify a URL", 1)
+	}
+	if db == "" {
+		return cli.NewExitError("You must specify a database", 2)
+	}
+
 	done := make(chan bool)
 	cancel := make(chan bool)
 
 	for i := 0; i < nw; i++ {
-		w := NewWorker(fmt.Sprintf("%s-%05d", hp, i), db, url, np, iv, cancel, done)
+		w := NewWorker(fmt.Sprintf("%s-%05d", hp, i), db, url, np, iv, wto, cancel, done)
 		if w != nil {
 			go func() {
 				// randomize the start of each worker with a delay of 0.0 - 1.0 sec
-				time.Sleep(time.Millisecond * time.Duration(rand.Float64() * 1000))
+				time.Sleep(time.Millisecond * time.Duration(rand.Float64()*1000))
 				w.Work()
 			}()
 		}
@@ -189,6 +223,11 @@ func main() {
 			Usage: "How long in seconds (fractions allowed) to run the test",
 			Value: DEF_TIMEOUT,
 		},
+		cli.Float64Flag{
+			Name:  "write-timeout, w",
+			Usage: "Timeout for each write operation",
+			Value: DEF_W_TIMEOUT,
+		},
 		cli.UintFlag{
 			Name:  "num-points, p",
 			Usage: "Number of points per batch",
@@ -207,7 +246,7 @@ func main() {
 
 	app.Before = func(c *cli.Context) error {
 		rand.Seed(time.Now().UnixNano())
-		log.SetOutput(os.Stdout)
+		//log.SetOutput(os.Stderr)
 		level, err := log.ParseLevel(c.String("log-level"))
 		if err != nil {
 			log.Fatal(err.Error())
@@ -216,8 +255,10 @@ func main() {
 		if !c.IsSet("log-level") && !c.IsSet("l") && c.Bool("debug") {
 			log.SetLevel(log.DebugLevel)
 		}
-		return nil
-
+		log.SetFormatter(&log.TextFormatter{
+			DisableTimestamp: false,
+			FullTimestamp:    true,
+		})
 		return nil
 	}
 	app.Action = startStress
