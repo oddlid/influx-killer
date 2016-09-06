@@ -106,7 +106,7 @@ func NewWorker(hostname, db, addr string, numpoints int, interval float64, cance
 		Hostname:  hostname,
 		DB:        db,
 		NumPoints: numpoints,
-		Interval:  time.Duration(interval) * time.Second,
+		Interval:  time.Duration(interval * 1000) * time.Millisecond,
 		Cancel:    cancel,
 		Done:      done,
 	}
@@ -128,7 +128,7 @@ func startStress(c *cli.Context) error {
 		if w != nil {
 			go func() {
 				// randomize the start of each worker with a delay of 0.0 - 1.0 sec
-				time.Sleep(time.Second * time.Duration(rand.Float64()))
+				time.Sleep(time.Millisecond * time.Duration(rand.Float64() * 1000))
 				w.Work()
 			}()
 		}
