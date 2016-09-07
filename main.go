@@ -7,12 +7,13 @@ import (
 	"github.com/urfave/cli" // renamed from codegansta
 	"math/rand"
 	"os"
-	//"os/signal"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
 const (
-	VERSION        string  = "2016-09-06"
+	VERSION        string  = "2016-09-07"
 	DEF_DB         string  = "custom"
 	DEF_HOSTPREFIX string  = "hetsfan"
 	DEF_TIMEOUT    float64 = 66.6
@@ -156,7 +157,8 @@ func startStress(c *cli.Context) error {
 	}
 
 	done := make(chan bool)
-	cancel := make(chan bool)
+	cancel := make(chan bool, nw)
+	sig := make(chan os.Signal, 1)
 
 	cancel_workers := func() {
 		for i := 0; i < nw; i++ {
@@ -170,7 +172,14 @@ func startStress(c *cli.Context) error {
 		}
 	}
 
-	// fix signal handling here, or maybe after starting workers...
+	signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
+	go func() {
+		s := <-sig
+		log.WithFields(log.Fields{
+			"signal": s,
+		}).Debug("Exiting from signal")
+		cancel_workers()
+	}()
 
 	for i := 0; i < nw; i++ {
 		w := NewWorker(fmt.Sprintf("%s-%05d", hp, i), db, url, np, iv, wto, cancel, done)
