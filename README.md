@@ -1,2 +1,2 @@
 # Influx Killer
-Stresstest for InfluxDB. Adjustable amount of workers, timeouts, data to send, etc.
+Stresstest for Influx. Adjustable amount of workers (hosts), intervals, number of points to send, etc.
